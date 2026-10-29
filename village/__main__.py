@@ -2,6 +2,7 @@
 
   python -m village run       start a new world (or --resume an old one) and watch it live
   python -m village replay    scrub through the history of a past run
+  python -m village export    save a run as one HTML file you can open or share anywhere
 """
 
 from __future__ import annotations
@@ -100,6 +101,23 @@ def cmd_replay(args):
         pass
 
 
+def cmd_export(args):
+    run_dir = Path(args.run_dir) if args.run_dir else _latest_run()
+    history = run_dir / "history.jsonl"
+    if not history.exists():
+        sys.exit(f"No history found in {run_dir}")
+    frames = history.read_text().splitlines()
+    if args.every > 1:
+        frames = frames[::args.every] + ([frames[-1]] if (len(frames) - 1) % args.every else [])
+    data = "[" + ",".join(frames) + "]"
+    page = (Path(__file__).parent / "static" / "index.html").read_text()
+    inline = "<script>window.VILLAGE_FRAMES=" + data.replace("</", "<\\/") + ";</script>\n<script>"
+    page = page.replace("<script>", inline, 1)
+    out = Path(args.out) if args.out else run_dir / "village.html"
+    out.write_text(page)
+    print(f"Wrote {out} ({len(frames)} turns, {out.stat().st_size / 1e6:.1f} MB). Open it in any browser.")
+
+
 def _latest_run() -> Path:
     runs = sorted(p for p in RUNS.glob("*") if (p / "history.jsonl").exists())
     if not runs:
@@ -138,6 +156,12 @@ def main(argv=None):
     rp.add_argument("--host", default="127.0.0.1")
     rp.add_argument("--open", action="store_true")
     rp.set_defaults(func=cmd_replay)
+
+    ex = sub.add_parser("export", help="save a recorded run as a single HTML file")
+    ex.add_argument("run_dir", nargs="?", help="run directory (default: the most recent run)")
+    ex.add_argument("-o", "--out", help="output file (default <run_dir>/village.html)")
+    ex.add_argument("--every", type=int, default=1, help="keep every Nth turn to make the file smaller")
+    ex.set_defaults(func=cmd_export)
 
     args = p.parse_args(argv)
     if not args.cmd:

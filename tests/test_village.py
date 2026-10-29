@@ -124,3 +124,14 @@ def test_perception_has_no_goals():
     text = perceive(sim, sim.agents[0]).lower()
     for word in ("goal", "task", "should", "objective"):
         assert word not in text
+
+
+def test_export_writes_a_standalone_page(tmp_path):
+    from village.__main__ import main
+    sim = make_sim(tmp_path)
+    for _ in range(5):
+        sim.step()
+    out = tmp_path / "v.html"
+    main(["export", str(tmp_path), "-o", str(out)])
+    page = out.read_text()
+    assert "window.VILLAGE_FRAMES=[" in page and page.count("<script>") == 2

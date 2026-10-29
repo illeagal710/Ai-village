@@ -31,6 +31,7 @@ No API key? `python -m village run --offline --open` runs the beings with a simp
 - **Past runs:** each run is kept in `runs/<date_time>/`. Replay one any time with
   `python -m village replay runs/<date_time>` (or just `python -m village replay` for the latest).
 - **Resume:** carry on an old world with `python -m village run --resume runs/<date_time>`.
+- **Share:** `python -m village export runs/<date_time>` saves a run as one HTML file that opens in any browser, phones included, with no server.
 
 ## The world
 
