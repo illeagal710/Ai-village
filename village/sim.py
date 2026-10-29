@@ -128,7 +128,7 @@ class Simulation:
                 if t.structure:
                     s = t.structure
                     structures.append({"kind": s.kind, "x": s.x, "y": s.y, "name": s.name, "builder": s.builder,
-                                       "description": s.description, "text": s.text, "storage": s.storage,
+                                       "description": s.description, "text": s.text, "storage": s.storage, "materials": s.materials,
                                        "built_tick": s.built_tick})
             rows.append("".join(chars))
         return {
@@ -138,6 +138,7 @@ class Simulation:
                         "energy": round(a.energy), "inventory": a.inventory, "action": a.last_action,
                         "thought": a.last_thought, "notes": a.notes} for a in self.agents],
             "events": tick_events,
+            "blocks": [[x, y, z, 0 if m == "wood" else 1] for (x, y, z), m in w.blocks.items()],
         }
 
     def _record(self, frame: dict) -> None:
@@ -174,6 +175,11 @@ def _describe(name: str, args: dict, ok: bool) -> str:
         text = f"walking to ({args.get('x')}, {args.get('y')})"
     elif name in ("gather", "demolish", "store", "take", "write"):
         text = f"{name} at ({args.get('x')}, {args.get('y')})"
+    elif name == "place_blocks":
+        n = len(args.get("blocks") or [])
+        text = f"placing {n} block{'s' if n != 1 else ''}"
+    elif name == "remove_block":
+        text = f"removing a block at ({args.get('x')}, {args.get('y')})"
     elif name == "set_name":
         text = f"took the name {args.get('name')}"
     else:

@@ -38,6 +38,7 @@ How the world works:
 - You can act on your own tile or any of the 8 tiles around it. Coordinates are (x, y); x grows to the east, y grows to the south.
 - You can build. Built things stay in the world until someone tears them down, and everyone can see and use them. Structures you know how to make:
 {structure_summary()}
+- You can also place and remove single blocks of wood or stone, up to 8 per turn, to make any shape you like in three dimensions. Each block uses one wood or stone.
 - You can speak; beings within 10 tiles hear you. You can write on signs. You can give things to beings next to you.
 - You only remember what is listed under "Your recent past" and "Your notes to yourself". Write notes for anything you want to keep.
 
@@ -57,6 +58,27 @@ class ClaudeBrain(Brain):
         self.model = model
         self.effort = effort
         self.fallbacks = fallbacks
+
+    def _block_plan(self, sim, agent):
+        """Grow a tower (or a short wall of towers) on a nearby column."""
+        w, inv = sim.world, dict(agent.inventory)
+        occupied = {a.pos for a in sim.agents}
+        cols = [(agent.x + dx, agent.y + dy) for dx in (-2, -1, 0, 1, 2) for dy in (-2, -1, 0, 1, 2) if (dx, dy) != (0, 0)]
+        built = [c for c in cols if (c[0], c[1], 1) in w.blocks]
+        free = [c for c in cols if w.in_bounds(*c) and c not in occupied and not w.tile(*c).structure]
+        if not free:
+            return []
+        x, y = self.rng.choice(built) if built and self.rng.random() < 0.7 else self.rng.choice(free)
+        z = max([bz for (bx, by, bz) in w.blocks if (bx, by) == (x, y)], default=0) + 1
+        out = []
+        while z <= 8 and len(out) < 4:
+            mat = "stone" if inv.get("stone", 0) else "wood" if inv.get("wood", 0) else None
+            if not mat:
+                break
+            inv[mat] -= 1
+            out.append({"x": x, "y": y, "z": z, "material": mat})
+            z += 1
+        return out
 
     def decide(self, sim, agent, perception):
         kwargs = dict(
@@ -128,6 +150,27 @@ class OfflineBrain(Brain):
                  and not sim.world.tile(x, y).structure and terrain_ok(sim.world.tile(x, y))]
         return self.rng.choice(spots) if spots else None
 
+    def _block_plan(self, sim, agent):
+        """Grow a tower (or a short wall of towers) on a nearby column."""
+        w, inv = sim.world, dict(agent.inventory)
+        occupied = {a.pos for a in sim.agents}
+        cols = [(agent.x + dx, agent.y + dy) for dx in (-2, -1, 0, 1, 2) for dy in (-2, -1, 0, 1, 2) if (dx, dy) != (0, 0)]
+        built = [c for c in cols if (c[0], c[1], 1) in w.blocks]
+        free = [c for c in cols if w.in_bounds(*c) and c not in occupied and not w.tile(*c).structure]
+        if not free:
+            return []
+        x, y = self.rng.choice(built) if built and self.rng.random() < 0.7 else self.rng.choice(free)
+        z = max([bz for (bx, by, bz) in w.blocks if (bx, by) == (x, y)], default=0) + 1
+        out = []
+        while z <= 8 and len(out) < 4:
+            mat = "stone" if inv.get("stone", 0) else "wood" if inv.get("wood", 0) else None
+            if not mat:
+                break
+            inv[mat] -= 1
+            out.append({"x": x, "y": y, "z": z, "material": mat})
+            z += 1
+        return out
+
     def decide(self, sim, agent, perception):
         inv = agent.inventory
         if not agent.name and self.rng.random() < 0.5:
@@ -170,6 +213,10 @@ class OfflineBrain(Brain):
                     if mats:
                         return "build", {"kind": "other", "x": spot[0], "y": spot[1], "name": "Cairn",
                                          "description": "A pile of things, for no reason.", "materials": mats}, "Let's make something."
+        if roll < 0.62 and inv.get("stone", 0) + inv.get("wood", 0) >= 3:
+            blocks = self._block_plan(sim, agent)
+            if blocks:
+                return "place_blocks", {"blocks": blocks}, "Stacking some blocks."
         if roll < 0.65:
             return "say", {"message": self.rng.choice(self.GREETINGS)}, ""
         return self._wander(sim, agent)

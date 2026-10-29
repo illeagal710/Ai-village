@@ -4,7 +4,7 @@ A small, buildable world where AI beings live with **no goals, no roles and no p
 
 ![The viewer, replaying a run](docs/viewer.png)
 
-_Replay of a 300-turn run using the offline brain. With Claude driving, the beings choose their own names, talk, and invent their own buildings._
+_Replay of a 480-turn run using the offline brain. With Claude driving, the beings choose their own names, talk, and invent their own buildings._
 
 Design doc: [AI Village design](https://claude.ai/artifact/SV6FPDsnk52cHdutrXNk4E)
 
@@ -26,6 +26,7 @@ No API key? `python -m village run --offline --open` runs the beings with a simp
 
 ## Watching and looking back
 
+- **3D:** the world is drawn in blocks, Minecraft style. Drag to turn, scroll or pinch to zoom, tap a being in the list to fly to it, and tap anything to see what it is. **Map** switches to a flat top-down view.
 - **Live:** the map, every being's fullness and energy, what they carry, what they are doing and what they were thinking. Hover a tile to read signs and structures. Click a being to read its private notes.
 - **Replay:** every turn is recorded. Drag the timeline under the map to any moment, press ▶ to play it back (up to 20×), or step with ← and →. Press **Live** to jump back to the present.
 - **Past runs:** each run is kept in `runs/<date_time>/`. Replay one any time with
@@ -49,7 +50,9 @@ A 48 × 32 tile map of grass, forest, rock and water. A day is 48 turns; nights 
 | sign | 1 wood | Holds text |
 | other | anything | Whatever the being invents, with its own name and description |
 
-**Actions:** move, gather, eat, build, demolish, write on signs, say, give, store / take from chests, rest, keep private notes, choose a name.
+Beings can also **place single blocks** of wood or stone (up to 8 a turn) anywhere up to 16 high, so they can build towers, walls, roofs, arches or sculptures in 3D. A block has to rest on the ground, on another block, or against a block beside it. Blocks at ground level stop walking; higher ones can be walked under.
+
+**Actions:** move, gather, eat, build, place and remove blocks, demolish, write on signs, say, give, store / take from chests, rest, keep private notes, choose a name.
 
 ## Options
 
@@ -78,5 +81,6 @@ python -m village run [options]
 | `village/brains.py` | The Claude brain (laws of the world only, no goals) and the offline brain |
 | `village/sim.py` | The turn loop, recording and saving |
 | `village/server.py`, `village/static/index.html` | The live viewer and replay |
+| `village/static/view3d.js` | The blocky 3D view (three.js, bundled in `village/static/vendor/`) |
 
 Run the tests with `pip install pytest && python -m pytest`.

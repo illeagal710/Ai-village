@@ -9,12 +9,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from .agent import HEARING_RANGE, MAX_NOTES, Agent
-from .world import FOREST, GRASS, ITEMS, ROCK, STRUCTURES, WATER, Structure
+from .world import BLOCK_MATERIALS, FOREST, GRASS, ITEMS, MAX_HEIGHT, ROCK, STRUCTURES, WATER, Structure
 
 if TYPE_CHECKING:
     from .sim import Simulation
 
 MOVE_STEPS = 4
+BLOCK_REACH = 2
+BLOCKS_PER_TURN = 8
 COSTS = {"move_step": 0.5, "gather": 2.0, "build": 4.0, "demolish": 3.0}
 BERRY_FULLNESS = 12
 
@@ -53,6 +55,19 @@ TOOLS = [
               "materials": {"type": "object", "description": "For kind 'other': items to use, e.g. {\"wood\": 3}.",
                             "additionalProperties": {"type": "integer"}},
           }), ["kind", "x", "y"]),
+    _tool("place_blocks", f"Place up to {BLOCKS_PER_TURN} single blocks of wood or stone this turn, each using one wood or stone you carry. "
+          "Blocks stack and form any shape: towers, walls, roofs, arches, sculptures. "
+          f"z is the height layer: z=1 sits on the ground, z=2 on top of that, up to z={MAX_HEIGHT}. "
+          "A block must rest on the ground, on a block below it, or touch a block beside it at the same height; blocks are placed in the order given. "
+          f"You can reach columns up to {BLOCK_REACH} tiles away. A block at z=1 blocks walking; blocks higher up can be walked under.",
+          {"blocks": {"type": "array", "minItems": 1, "maxItems": BLOCKS_PER_TURN, "items": {
+              "type": "object", "required": ["x", "y", "z", "material"],
+              "properties": {"x": {"type": "integer"}, "y": {"type": "integer"},
+                             "z": {"type": "integer", "minimum": 1, "maximum": MAX_HEIGHT},
+                             "material": {"type": "string", "enum": list(BLOCK_MATERIALS)}}}}},
+          ["blocks"]),
+    _tool("remove_block", f"Take away a single block within {BLOCK_REACH} tiles and get its material back.",
+          {"x": {"type": "integer"}, "y": {"type": "integer"}, "z": {"type": "integer"}}, ["x", "y", "z"]),
     _tool("demolish", "Tear down a structure on a tile you are on or next to. You get back about half its materials.",
           _xy(), ["x", "y"]),
     _tool("write", "Write new text on a sign you are on or next to, replacing what it said.",
@@ -200,6 +215,8 @@ def _do_build(sim, agent, args):
         raise ActionError("only bridges can be built on water")
     if kind == "farm" and t.terrain != GRASS:
         raise ActionError("farms need grass")
+    if (x, y, 1) in w.blocks:
+        raise ActionError(f"there are blocks in the way at ({x}, {y})")
     if STRUCTURES[kind].get("blocks") and any(a.pos == (x, y) for a in sim.agents):
         raise ActionError("someone is standing there")
 
@@ -235,6 +252,75 @@ def _do_build(sim, agent, args):
         t.berries = min(t.berries, 8)
     agent.energy -= COSTS["build"]
     return f"you built {t.structure.label()} at ({x}, {y})"
+
+
+def _block_xyz(agent: Agent, args: dict) -> tuple[int, int, int]:
+    try:
+        x, y, z = int(args["x"]), int(args["y"]), int(args["z"])
+    except (KeyError, TypeError, ValueError):
+        raise ActionError("you need to give x, y and z as whole numbers")
+    if max(abs(x - agent.x), abs(y - agent.y)) > BLOCK_REACH:
+        raise ActionError(f"({x}, {y}) is out of reach; blocks can be placed up to {BLOCK_REACH} tiles away")
+    if not 1 <= z <= MAX_HEIGHT:
+        raise ActionError(f"z must be between 1 and {MAX_HEIGHT}")
+    return x, y, z
+
+
+def _do_place_blocks(sim, agent, args):
+    wanted = args.get("blocks")
+    if isinstance(wanted, dict):
+        wanted = [wanted]
+    if not isinstance(wanted, list) or not wanted:
+        raise ActionError("give a list of blocks, each with x, y, z and material")
+    placed, problem = [], ""
+    for b in wanted[:BLOCKS_PER_TURN]:
+        try:
+            placed.append(_place_one(sim, agent, b if isinstance(b, dict) else {}))
+        except ActionError as exc:
+            problem = str(exc)
+            break
+    if not placed:
+        raise ActionError(problem)
+    agent.energy -= 0.5 * len(placed)
+    where = "; ".join(placed)
+    tail = f"; then stopped because {problem}" if problem else ""
+    return f"you placed {len(placed)} block{'s' if len(placed) != 1 else ''}: {where}{tail}"
+
+
+def _place_one(sim, agent, args) -> str:
+    x, y, z = _block_xyz(agent, args)
+    w = sim.world
+    if not w.in_bounds(x, y):
+        raise ActionError("that is outside the world")
+    material = args.get("material")
+    if material not in BLOCK_MATERIALS:
+        raise ActionError(f"blocks can be made of {' or '.join(BLOCK_MATERIALS)}")
+    if (x, y, z) in w.blocks:
+        raise ActionError(f"there is already a {w.blocks[(x, y, z)]} block at ({x}, {y}, z={z})")
+    s = w.tile(x, y).structure
+    if s and s.kind != "path":
+        raise ActionError(f"{s.label()} stands at ({x}, {y})")
+    if z == 1 and any(a.pos == (x, y) for a in sim.agents):
+        raise ActionError("someone is standing there")
+    if not w.supported(x, y, z):
+        raise ActionError(f"a block at z={z} would float; it needs a block under it or beside it")
+    if not agent.remove(material, 1):
+        raise ActionError(f"you have no {material}")
+    w.blocks[(x, y, z)] = material
+    return f"{material} at ({x}, {y}, z={z})"
+
+
+def _do_remove_block(sim, agent, args):
+    x, y, z = _block_xyz(agent, args)
+    w = sim.world
+    material = w.blocks.get((x, y, z))
+    if not material:
+        raise ActionError(f"there is no block at ({x}, {y}, z={z})")
+    if not agent.add(material, 1):
+        raise ActionError("your hands are full")
+    del w.blocks[(x, y, z)]
+    agent.energy -= 1.0
+    return f"you removed the {material} block at ({x}, {y}, z={z})"
 
 
 def _do_demolish(sim, agent, args):

@@ -109,11 +109,15 @@ def perceive(sim: "Simulation", agent: Agent) -> str:
 
     # Map
     lines.append("")
-    lines.append(f"What you can see (radius {r}). Legend: . grass, T forest, ^ rock, ~ water, * berries, @ you, digits = other beings, other symbols = structures.")
+    lines.append(f"What you can see (radius {r}). Legend: . grass, T forest, ^ rock, ~ water, * berries, % blocks, @ you, digits = other beings, other symbols = structures.")
     x0, x1 = max(0, agent.x - r), min(w.width - 1, agent.x + r)
     y0, y1 = max(0, agent.y - r), min(w.height - 1, agent.y + r)
     lines.append("     " + "".join(f"{x % 100:>3}" for x in range(x0, x1 + 1)))
     seen_structures, seen_beings, resources = [], [], []
+    columns: dict[tuple[int, int], list[tuple[int, str]]] = {}
+    for (bx, by, bz), m in w.blocks.items():
+        if x0 <= bx <= x1 and y0 <= by <= y1:
+            columns.setdefault((bx, by), []).append((bz, m))
     for y in range(y0, y1 + 1):
         row = []
         for x in range(x0, x1 + 1):
@@ -123,6 +127,8 @@ def perceive(sim: "Simulation", agent: Agent) -> str:
             elif (x, y) in others:
                 ch = others[(x, y)].symbol
                 seen_beings.append(others[(x, y)])
+            elif (x, y) in columns:
+                ch = "%"
             elif t.structure:
                 ch = t.structure.glyph
             elif t.berries:
@@ -161,6 +167,12 @@ def perceive(sim: "Simulation", agent: Agent) -> str:
                 line += f". Contains: {contents}"
             lines.append(line)
 
+    if columns:
+        lines.append("")
+        lines.append("Blocks you can see (each column from the bottom up):")
+        for (bx, by) in sorted(columns, key=lambda c: (c[1], c[0])):
+            lines.append(f"- ({bx}, {by}): " + _describe_column(sorted(columns[(bx, by)])))
+
     if seen_beings:
         lines.append("")
         lines.append("Beings you can see:")
@@ -187,6 +199,16 @@ def perceive(sim: "Simulation", agent: Agent) -> str:
         lines.extend(f"{i + 1}. {n}" for i, n in enumerate(agent.notes))
 
     return "\n".join(lines)
+
+
+def _describe_column(col: list[tuple[int, str]]) -> str:
+    runs = []   # [start_z, end_z, material]
+    for z, m in col:
+        if runs and runs[-1][1] == z - 1 and runs[-1][2] == m:
+            runs[-1][1] = z
+        else:
+            runs.append([z, z, m])
+    return ", ".join(f"z{a} {m}" if a == b else f"z{a}-{b} {m}" for a, b, m in runs)
 
 
 def neighbours(x: int, y: int):

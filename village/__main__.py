@@ -21,6 +21,7 @@ from .server import History, serve
 from .sim import Simulation
 
 RUNS = Path("runs")
+THREE_CDN = "https://cdn.jsdelivr.net/npm/three@0.147.0"
 
 
 def make_brain(args):
@@ -110,9 +111,15 @@ def cmd_export(args):
     if args.every > 1:
         frames = frames[::args.every] + ([frames[-1]] if (len(frames) - 1) % args.every else [])
     data = "[" + ",".join(frames) + "]"
-    page = (Path(__file__).parent / "static" / "index.html").read_text()
+    static = Path(__file__).parent / "static"
+    page = (static / "index.html").read_text()
+    # A standalone page loads three.js from a CDN and carries the 3D view inline.
+    page = page.replace('<script src="vendor/three.min.js"></script>', f'<script src="{THREE_CDN}/build/three.min.js"></script>')
+    page = page.replace('<script src="vendor/OrbitControls.js"></script>',
+                        f'<script src="{THREE_CDN}/examples/js/controls/OrbitControls.js"></script>')
+    page = page.replace('<script src="view3d.js"></script>', "<script>\n" + (static / "view3d.js").read_text() + "</script>")
     inline = "<script>window.VILLAGE_FRAMES=" + data.replace("</", "<\\/") + ";</script>\n<script>"
-    page = page.replace("<script>", inline, 1)
+    page = page.replace("<script>\nconst COLORS", inline + "\nconst COLORS", 1)
     out = Path(args.out) if args.out else run_dir / "village.html"
     out.write_text(page)
     print(f"Wrote {out} ({len(frames)} turns, {out.stat().st_size / 1e6:.1f} MB). Open it in any browser.")

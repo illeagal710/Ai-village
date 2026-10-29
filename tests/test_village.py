@@ -134,4 +134,23 @@ def test_export_writes_a_standalone_page(tmp_path):
     out = tmp_path / "v.html"
     main(["export", str(tmp_path), "-o", str(out)])
     page = out.read_text()
-    assert "window.VILLAGE_FRAMES=[" in page and page.count("<script>") == 2
+    assert "window.VILLAGE_FRAMES=[" in page and "Village3D" in page
+    assert 'src="vendor/' not in page and "cdn.jsdelivr.net/npm/three@0.147.0" in page
+
+
+def test_blocks_stack_need_support_and_block_walking():
+    sim, a = flat_sim()
+    a.inventory = {"stone": 6, "wood": 2}
+    msg = actions.apply(sim, a, "place_blocks", {"blocks": [
+        {"x": 3, "y": 2, "z": 1, "material": "stone"},
+        {"x": 3, "y": 2, "z": 2, "material": "stone"},
+        {"x": 4, "y": 2, "z": 2, "material": "wood"},     # overhang, held by its neighbour
+        {"x": 4, "y": 4, "z": 3, "material": "stone"},    # floats: stops here
+        {"x": 1, "y": 1, "z": 1, "material": "stone"},
+    ]})
+    assert "3 blocks" in msg and "float" in msg
+    assert sim.world.blocks[(4, 2, 2)] == "wood"
+    assert not sim.world.passable(3, 2) and sim.world.passable(4, 2)   # walk under the overhang
+    assert "z1-2 stone" in perceive(sim, a)
+    actions.apply(sim, a, "remove_block", {"x": 4, "y": 2, "z": 2})
+    assert a.inventory["wood"] == 2

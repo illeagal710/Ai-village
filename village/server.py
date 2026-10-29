@@ -67,6 +67,11 @@ def serve(history: History, port: int = 8000, sim=None, host: str = "127.0.0.1")
             path = self.path.split("?")[0]
             if path in ("/", "/index.html"):
                 return self._send((STATIC / "index.html").read_bytes(), "text/html; charset=utf-8")
+            if path == "/view3d.js" or path.startswith("/vendor/"):
+                f = (STATIC / path.lstrip("/")).resolve()
+                if f.is_file() and STATIC.resolve() in f.parents:
+                    return self._send(f.read_bytes(), "text/javascript; charset=utf-8")
+                return self._send(b"not found", "text/plain", 404)
             if path == "/api/info":
                 info = {"frames": history.refresh(), "live": sim is not None}
                 return self._send(json.dumps(info).encode(), "application/json")

@@ -38,6 +38,11 @@
   button { background: #2a2e36; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; cursor: pointer; font: inherit; }
   button.on { background: var(--accent); color: #1a1a1a; border-color: var(--accent); }
   select { background: #2a2e36; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px; }
+  .views { margin-left: auto; display: flex; gap: 4px; }
+  #map3d { display: block; border-radius: 6px; touch-action: none; }
+  #labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+  #labels span { position: absolute; transform: translate(-50%, -100%); font: 600 11px system-ui; color: #fff; text-shadow: 0 0 3px #000, 0 0 2px #000; white-space: nowrap; }
+  #hint { position: absolute; left: 22px; bottom: 20px; font-size: 11.5px; color: #fff; background: #0008; padding: 3px 8px; border-radius: 4px; pointer-events: none; }
   #tip { position: fixed; pointer-events: none; background: #0d0f12ee; border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font-size: 12px; max-width: 280px; display: none; z-index: 5; }
   @media (max-width: 860px) {
     main { grid-template-columns: 1fr; height: auto; padding-bottom: 60px; }
@@ -52,9 +57,10 @@
   <h1>AI Village</h1>
   <span id="clock">connecting…</span>
   <span class="small" id="mode"></span>
+  <span class="views"><button id="v3d" class="on" title="Blocky 3D view">3D</button><button id="v2d" title="Flat map">Map</button></span>
 </header>
 <main>
-  <div id="mapwrap"><canvas id="map"></canvas></div>
+  <div id="mapwrap"><canvas id="map"></canvas><div id="labels"></div><div id="hint">Drag to turn · scroll or pinch to zoom · tap a being in the list to fly to it</div></div>
   <aside>
     <h2>Beings</h2>
     <div id="beings"></div>
@@ -77,6 +83,9 @@
   </select>
 </footer>
 <div id="tip"></div>
+<script src="vendor/three.min.js"></script>
+<script src="vendor/OrbitControls.js"></script>
+<script src="view3d.js"></script>
 
 <script>
 const COLORS = { ".": "#4f7d3a", "T": "#2c5a2a", "^": "#7b7b80", "~": "#2f5f8f", "*": "#4f7d3a" };
@@ -131,6 +140,13 @@ function draw(f) {
     ctx.fillStyle = col; ctx.fillRect(s.x*S+pad, s.y*S+pad, S-2*pad, S-2*pad);
     if (glyph) { ctx.fillStyle = "#1a1a1a"; ctx.font = `bold ${Math.floor(S*0.6)}px system-ui`; ctx.fillText(glyph, s.x*S+S/2, s.y*S+S/2+1); }
   }
+  const tops = {};
+  for (const [bx, by, bz, m] of f.blocks || []) { const k = bx + "," + by; if (!tops[k] || tops[k][0] < bz) tops[k] = [bz, m]; }
+  for (const [k, [h, m]] of Object.entries(tops)) {
+    const [bx, by] = k.split(",").map(Number);
+    ctx.fillStyle = m ? "#9a9aa0" : "#b8864b"; ctx.fillRect(bx*S+1, by*S+1, S-2, S-2);
+    ctx.fillStyle = "#1a1a1a"; ctx.font = `bold ${Math.floor(S*0.5)}px system-ui`; ctx.fillText(h, bx*S+S/2, by*S+S/2+1);
+  }
   if (f.night) { ctx.fillStyle = "rgba(10, 15, 40, 0.38)"; ctx.fillRect(0, 0, canvas.width, canvas.height); }
   for (const a of f.agents) {
     const col = AGENT_COLORS[(a.id - 1) % AGENT_COLORS.length];
@@ -161,7 +177,10 @@ function panel(f) {
     </div>`;
   }).join("");
   document.querySelectorAll(".being").forEach(el => el.onclick = () => {
-    selected = selected === +el.dataset.id ? null : +el.dataset.id; render();
+    selected = selected === +el.dataset.id ? null : +el.dataset.id;
+    const who = frame.agents.find(a => a.id === selected);
+    if (who && view === "3d" && window.Village3D) Village3D.focus(who.x, who.y);
+    render();
   });
   const sel = f.agents.find(a => a.id === selected);
   $("selhead").style.display = sel ? "" : "none";
@@ -176,7 +195,18 @@ function panel(f) {
     named.slice(-15).map(s => `<div class="ev">${esc(s.name || s.kind)} at (${s.x}, ${s.y}) by ${esc(s.builder)}${s.text ? `: “${esc(s.text)}”` : s.description ? ` — ${esc(s.description)}` : ""}</div>`).join("");
 }
 
-function render() { if (frame) { draw(frame); panel(frame); } }
+let view = "3d";
+function render() {
+  if (!frame) return;
+  const use3d = view === "3d" && window.Village3D && Village3D.ok();
+  canvas.style.display = use3d ? "none" : "block";
+  $("hint").style.display = use3d ? "block" : "none";
+  if (use3d) Village3D.show(frame); else { if (window.Village3D) Village3D.hide(); draw(frame); }
+  panel(frame);
+}
+function setView(v) { view = v; $("v3d").classList.toggle("on", v === "3d"); $("v2d").classList.toggle("on", v === "2d"); $("tip").style.display = "none"; render(); }
+$("v3d").onclick = () => setView("3d");
+$("v2d").onclick = () => setView("2d");
 
 async function show(n) {
   try {
@@ -225,10 +255,9 @@ window.addEventListener("keydown", e => {
 });
 window.addEventListener("resize", render);
 
-canvas.addEventListener("mousemove", e => {
-  if (!frame) return;
-  const S = canvas.width / frame.width, r = canvas.getBoundingClientRect();
-  const x = Math.floor((e.clientX - r.left) / S), y = Math.floor((e.clientY - r.top) / S);
+function showTip(x, y, cx, cy) {
+  const tip = $("tip");
+  if (!frame || x < 0 || y < 0) { tip.style.display = "none"; return; }
   const bits = [];
   for (const a of frame.agents) if (a.x === x && a.y === y) bits.push(`<b>${esc(a.name)}</b>: ${esc(a.action)}`);
   for (const s of frame.structures) if (s.x === x && s.y === y) {
@@ -238,14 +267,21 @@ canvas.addEventListener("mousemove", e => {
     const st = Object.entries(s.storage || {}).filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(", ");
     if (s.kind === "chest") bits.push(`contains: ${st || "nothing"}`);
   }
-  const tip = $("tip");
+  const col = (frame.blocks || []).filter(b => b[0] === x && b[1] === y);
+  if (col.length) bits.push(`${col.length} block${col.length > 1 ? "s" : ""}, up to height ${Math.max(...col.map(b => b[2]))}`);
   if (!bits.length) { tip.style.display = "none"; return; }
   tip.innerHTML = `<div class="small">(${x}, ${y})</div>` + bits.join("<br>");
-  tip.style.display = "block"; tip.style.left = (e.clientX + 14) + "px"; tip.style.top = (e.clientY + 14) + "px";
-});
+  tip.style.display = "block";
+  tip.style.left = Math.min(cx + 14, window.innerWidth - 290) + "px"; tip.style.top = (cy + 14) + "px";
+}
+function tip2d(e) {
+  if (!frame) return;
+  const S = canvas.width / frame.width, r = canvas.getBoundingClientRect();
+  showTip(Math.floor((e.clientX - r.left) / S), Math.floor((e.clientY - r.top) / S), e.clientX, e.clientY);
+}
+canvas.addEventListener("mousemove", tip2d);
+canvas.addEventListener("click", tip2d);   // taps on phones show the same details as hovering
 canvas.addEventListener("mouseleave", () => $("tip").style.display = "none");
-// Taps on phones show the same details as hovering.
-canvas.addEventListener("click", e => canvas.dispatchEvent(new MouseEvent("mousemove", { clientX: e.clientX, clientY: e.clientY })));
 
 poll();
 setInterval(poll, 700);

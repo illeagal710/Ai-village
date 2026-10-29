@@ -49,6 +49,8 @@ STRUCTURES: dict[str, dict] = {
 }
 
 ITEMS = ("wood", "stone", "berries")
+BLOCK_MATERIALS = ("wood", "stone")   # what single blocks can be made of
+MAX_HEIGHT = 16                       # highest layer a block can sit on (ground is 0)
 CARRY_LIMIT = 30
 
 DIRS = {
@@ -108,6 +110,7 @@ class World:
         self.tick = 0
         self.tiles: list[list[Tile]] = []
         self.events: deque[dict] = deque(maxlen=300)   # global log for the viewer
+        self.blocks: dict[tuple[int, int, int], str] = {}   # (x, y, z) -> material; z=1 sits on the ground
         self._generate()
 
     # --- generation ----------------------------------------------------------
@@ -160,6 +163,8 @@ class World:
     def passable(self, x: int, y: int) -> bool:
         if not self.in_bounds(x, y):
             return False
+        if (x, y, 1) in self.blocks:   # a block at ground level is in the way; higher ones can be walked under
+            return False
         t = self.tile(x, y)
         if t.structure:
             if t.structure.blocks:
@@ -187,6 +192,15 @@ class World:
         if t < NIGHT_START:
             return "evening"
         return "night"
+
+    def column(self, x: int, y: int) -> list[tuple[int, str]]:
+        return sorted((z, m) for (bx, by, z), m in self.blocks.items() if (bx, by) == (x, y))
+
+    def supported(self, x: int, y: int, z: int) -> bool:
+        """A block needs the ground, a block under it, or a block beside it to hold on to."""
+        if z == 1 or (x, y, z - 1) in self.blocks:
+            return True
+        return any((x + dx, y + dy, z) in self.blocks for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
 
     def random_open_tile(self) -> tuple[int, int]:
         for _ in range(10_000):
@@ -259,6 +273,7 @@ class World:
             "width": self.width, "height": self.height, "seed": self.seed, "tick": self.tick,
             "tiles": [[t.to_dict() for t in row] for row in self.tiles],
             "events": list(self.events),
+            "blocks": [[x, y, z, m] for (x, y, z), m in self.blocks.items()],
         }
 
     @classmethod
@@ -267,6 +282,7 @@ class World:
         w.width, w.height, w.seed, w.tick = d["width"], d["height"], d["seed"], d["tick"]
         w.rng = random.Random(w.seed + w.tick)
         w.events = deque(d.get("events", []), maxlen=300)
+        w.blocks = {(x, y, z): m for x, y, z, m in d.get("blocks", [])}
         w.tiles = []
         for row in d["tiles"]:
             out = []
